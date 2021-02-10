@@ -1,0 +1,295 @@
+---
+title: "Explore size spectra"
+author: "Asta, Freddie, Shane, Ken"
+date: "07/02/2021"
+output: html_document
+---
+
+### libraries
+
+```{r setup, include=FALSE}
+#rm(list=ls())
+library(tidyverse)
+library(data.table)
+```
+
+### Theoretical size spectrum 
+
+All code and data for the figures in: K.H. Andersen (2019) "Fish Ecology, Evolution, and Exploitation", https://press.princeton.edu/titles/13516.html are on GitHub: https://github.com/Kenhasteandersen/Fish
+
+To reproduce population size spectrum (Fig.4.2) we need plotSpectrum() in plotChapterDemography.R
+
+To run the function we need the package:  https://github.com/Kenhasteandersen/FishSizeSpectrum
+
+```{r, eval = F}
+#1: either install the package from github
+library(devtools)
+install_github("Kenhasteandersen/FishSizeSpectrum", ref = "master")
+library(fishsizespectrum)
+## NOTE - if for some reason you cannot install this package and run the rest of this chunk, the datasets it produces are saved at the end of it
+```
+
+```{r}
+p <- baseparameters()   ## setup basic parameters
+W <- 1000  ## maximum body size (Winf)
+p$W <- W
+N <- spectrum(p)  #get the spectrum based on biphasic growth numerical simulation
+Nana <- spectrumana(p) #get the spectrum for analytical solution using Von-Bertanfy growth curve
+
+# write these spectra into csv files
+N %>% as_tibble() %>% select(-c(mu.1:mu.1000)) %>% fwrite("theoryBase_biphasic.csv")
+Nana %>% as_tibble() %>% fwrite("theoryBase_anal.csv")
+
+```
+
+This spectrum is from Andersen et al. 2019, Figure 4.1a. Details on how the assumptions are explained in the reference. Here we just get the data to plot the figure
+
+```{r cars}
+model1 <- read_csv("theoryBase_biphasic.csv")  # assuming biphasic growth
+model2 <- read_csv("theoryBase_anal.csv")  # assuming VB growth 
+
+theory <- ggplot() + 
+  geom_line(data = model1, aes(x = w, y = NprR/NprR[1]), size=1) +
+  geom_line(data = model2, aes(x = w, y = NprR/NprR[1]), size=1, col = 'red') +
+  scale_y_log10() +
+  scale_x_log10() + 
+  xlab(expression(log10(w))) +
+  ylab(expression(log10(Ndens/Ndens[smallest]))) +
+  theme_bw() + 
+  ggtitle("Theoretical number DENSITY spectrum")
+
+theory
+```
+
+## Empirical size spectra
+
+We will use data from RLS for Jervis Bay marine protected area, all surveys combined
+
+```{r}
+#read in data
+df_single <- read_csv("jervisBay.csv")
+
+cutoff = c(2.5, 5, 7.5, 10, 12.5, 15, 20, 25, 30, 35, 40, 50, 
+    seq(from=62.5, to=200, by=12.5), 
+    seq(from=250, to=500, by=50))
+
+rls_bins = c(0, cutoff)
+
+df_cutoff <- tibble(
+  size_class = cutoff,
+    size_indx = 1:length(cutoff)
+)
+
+df_single <- left_join(df_single, df_cutoff, by = "size_class")
+
+df_abundance <- df_single %>%
+    group_by(spp_id) %>%
+    summarise(.groups = "drop", Total_N = n(), Mean_L = mean(size_class))
+
+df_fit <- df_single %>%
+    group_by(spp_id, size_indx, w) %>%
+    summarise(.groups = "drop", n = n()) %>%
+    left_join(df_cutoff, by = "size_indx") %>%
+    left_join(df_abundance, by = "spp_id")
+
+## plot raw length / abundance observations for species that have more than 20 observations
+ggplot(data = df_fit %>% filter(Total_N > 20)) +
+    geom_point(mapping = aes(x = size_class, y = n)) + 
+    geom_line(mapping = aes(x = size_class, y = n)) +
+    facet_wrap( ~ spp_id, ncol = 5) +
+    scale_y_log10() + scale_x_log10() +
+    labs(x = "Fish length (cm)",y = "Fish abundance") +
+    theme_bw()
+
+
+## Now do the same plot but scaled by mean length 
+df_plot <- df_fit %>% 
+    mutate(l_hat = log(size_class) - log(Mean_L))
+
+ggplot(df_plot, aes(x = l_hat, y = n/Total_N, color = log(Total_N), group = spp_id)) + 
+    geom_line() +
+    scale_y_log10() +
+     scale_colour_gradient2(low = "#fed976", mid = "#fd8d3c", high = "#bd0026", 
+         midpoint = 2.5, na.value = NA) +
+    theme_bw()
+
+save(df_plot, file = "emp_data_plot.RData")
+
+```
+
+Within species variation in the log-size distributions are similar in shape (but not location) between species, and negative quadratic, supporting our assumption of a normal distribution: li,s∼N(l~s,ϕwl~s).
+
+### rescale theoretical data 
+
+To compare theoretical data with empirical observations we need to put theoretical predictions into same size bins, as in empirical data 
+
+#### model 1
+
+```{r, eval = F}
+### Step 1
+### convert theoretical data to Numbers per size bin and not number density per size bin
+### for this we need to multiply number density by the width of the size bin 
+
+
+#get width of the size bins dw, which is the difference between two consecutive size classes. At the moment they are not logarithmic 
+model1$dw <- NA #bin width
+
+for (i in 2:length(model1$w)) {
+  model1$dw[i-1] <- model1$w[i] - model1$w[i-1]
+}
+
+## now to get actual numbers we multiply number density (NprR) by dw
+model1$numb <- model1$NprR * model1$dw
+model1 <- model1[c(1:999),]
+sum(model1$numb)
+
+### Step 2
+## now we convert theoretical weights into lengths using standard LW conversion data
+LWa = 0.01
+LWb = 3
+model1$len <- (model1$w/LWa)^(1/LWb)
+
+## Now to convert number density into numbers per bin I will use an clumsy method which still works 
+### Step 3
+# convert numbers per small unit volume (m3?) into larger number (per 10km2) by say multiplying numbers by 10e7 and rounding to 0. This will give numbers as digits and not real values
+model1$numb2 <- round(model1$numb*1e7, 0) ## 
+
+sum(model1$numb2) # looks like a large enough number, so should be a sufficient approximation
+
+# untable the data so each row represents one theoretical observation of a certain length
+library(reshape)
+temp_size <- untable(model1, num = model1$numb2)
+
+### Step 4
+# bin these obsevations into same lengths groups as RLS data
+m1_plot <- hist(temp_size$len, breaks = c(0,cutoff), plot = F)
+
+teor_plot <- as.data.frame(cbind(m1_plot$mids, m1_plot$counts))
+colnames(teor_plot) <- c("size_class", "n")
+
+#get mean length (based on abundance, like in RLS), max L and total abundance
+meanL <- mean(temp_size$len)
+maxL <- max(temp_size$len)
+totalN <- length(temp_size$len)
+
+#rescale by mean length 
+teor_plot$l_hat <- log(teor_plot$size_class) - log(meanL)
+#get relative numbers (divided to sum)
+teor_plot$rel_N <- teor_plot$n/totalN
+
+teor_plot1 <- teor_plot
+save(teor_plot1, file = "teor_plot_model1c.RData")
+
+```
+
+#### model2
+do exactly the same with model 2 data
+
+```{r, eval = F}
+#rename the file, so I can use the same script 
+model1 <- model2
+
+### Step 1
+### convert theoretical data to Numbers per size bin and not number density per size bin
+### for this we need to multiply number density by the width of the size bin 
+
+#get width of the size bins dw, which is the difference between two consecutive size classes. At the moment they are not logarithmic 
+model1$dw <- NA
+
+for (i in 2:length(model1$w)) {
+  model1$dw[i-1] <- model1$w[i] - model1$w[i-1]
+}
+
+## now to get actual numbers we multiply number density by dw
+model1$numb <- model1$NprR * model1$dw
+model1 <- model1[c(1:999),]
+sum(model1$numb)
+
+### Step 2
+## now we convert theoretical weights into lengths using standard LW conversion data
+LWa = 0.01
+LWb = 3
+
+model1$len <- (model1$w/LWa)^(1/LWb)
+
+### Step 3
+model1$numb2 <- round(model1$numb*1e7, 0) ## 
+
+sum(model1$numb2)
+
+# untable the data so each row represents one theoretical observation of a certain length
+library(reshape)
+temp_size <- untable(model1, num = model1$numb2)
+
+### Step 4
+# bin them into same lengths as RLS data
+m1_plot <- hist(temp_size$len, breaks = c(0,cutoff),plot = F)
+
+teor_plot <- as.data.frame(cbind(m1_plot$mids, m1_plot$counts))
+colnames(teor_plot) <- c("size_class", "n")
+
+#get mean, max L and total abundance
+meanL <- mean(temp_size$len)
+maxL <- max(temp_size$len)
+totalN <- length(temp_size$len)
+
+#rescale by mean length 
+teor_plot$l_hat <- log(teor_plot$size_class) - log(meanL)
+teor_plot$rel_N <- teor_plot$n/totalN
+
+teor_plot2 <- teor_plot
+save(teor_plot2, file = "teor_plot_model2c.RData")
+
+```
+
+### Fig1 plot
+
+```{r}
+load(file = "teor_plot_model1c.Rdata") #biphasic growh
+load(file = "teor_plot_model2c.Rdata") #VB analytical solution
+load(file = "emp_data_plot.RData")
+
+#first check empirical data plot
+fig_number <- 
+  df_plot %>% 
+  ggplot(aes(x = l_hat, y = n/Total_N)) + 
+  geom_line(aes(color = log(Total_N), group = spp_id)) +
+  xlim(-2, 2) +
+  scale_y_log10() +
+  #scale_x_log10() +
+  scale_colour_gradient2(low = "#fed976", mid = "#fd8d3c", high = "#bd0026", 
+                         midpoint = 2.5, na.value = NA) +
+  theme_bw()
+
+fig_number
+
+#now check theoretical data plot
+teor_plot1 <- teor_plot1[c(which(teor_plot1$n > 0)),]
+teor_plot2 <- teor_plot2[c(which(teor_plot2$n > 0)),]
+
+fig_teor <- ggplot() +
+  geom_line(data=teor_plot1, aes(x=l_hat, y=rel_N), size=1) +
+  geom_line(data=teor_plot2, aes(x=l_hat, y=rel_N), size=1, col = 'red') + 
+  xlim(-2, 2) +
+  scale_y_log10() +
+  theme_bw()
+fig_teor
+
+# Combined fig
+p1 <- 
+  fig_number +
+  geom_smooth(data=teor_plot1, aes(x=l_hat, y=rel_N), se = F, size=1.2, col = "navy") + ## biphasic
+  geom_smooth(data=teor_plot2, aes(x=l_hat, y=rel_N), se = F, size=1.2, col = "blue") +  #VB analytical
+  xlab("log10(length/mean_length)") +
+  ylab("Relative numbers") +
+  theme_bw(24) +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(), 
+        #legend.title = element_blank(),
+        legend.position = "none")
+
+p1
+
+```
+
+
