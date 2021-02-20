@@ -30,6 +30,7 @@ library(fishsizespectrum)
 ```
 
 ```{r}
+library(fishsizespectrum)
 p <- baseparameters()   ## setup basic parameters
 W <- 1000  ## maximum body size (Winf)
 p$W <- W
@@ -40,17 +41,105 @@ Nana <- spectrumana(p) #get the spectrum for analytical solution using Von-Berta
 N %>% as_tibble() %>% select(-c(mu.1:mu.1000)) %>% fwrite("theoryBase_biphasic.csv")
 Nana %>% as_tibble() %>% fwrite("theoryBase_anal.csv")
 
+## and plot it
+base <- N %>% as_tibble() %>% select(-c(mu.1:mu.1000)) 
+base2 <- Nana %>% as_tibble() 
+
+ggplot() + 
+  geom_line(data = base, aes(x = w, y = NprR/NprR[1]), size=1) +
+  geom_line(data = base2, aes(x = w, y = NprR/NprR[1]), size=1, col = 'red') +
+  scale_y_log10() +
+  scale_x_log10() + 
+  xlab(expression(log10(w))) +
+  ylab(expression(log10(Ndens/Ndens[smallest]))) +
+  theme_bw() + 
+  ggtitle("Theoretical number DENSITY spectrum")
+
 ```
 
-This spectrum is from Andersen et al. 2019, Figure 4.1a. Details on how the assumptions are explained in the reference. Here we just get the data to plot the figure
+This spectrum above is from Andersen et al. 2019, Figure 4.1a, parameters in Table A2. Details on how the assumptions are explained in the reference. Here we just get the data to plot the figure
 
-```{r cars}
+### Alternative theor params
+
+Below we explore alternative parameters of mortality, growth and maturation
+```{r, eval = F}
+#these are the base parameters that affect the result
+p$a #physiological mortality (0.42)
+p$A #growth coefficient (g/year, 5.35)
+p$etaM # proportion of maximum weight at maturation (0.28)
+p$epsEgg  # reproductive efficiency (linear density dependence term, 0.22)
+p$epsR #recruitment efficiency, nonlinear term (0.03)
+p$n # metabolic exponent (default 0.75)
+p$w0 #egg size (0.001)
+
+## params below are only important in community models
+p$beta #predator prey mass ratio (408)
+p$sigma #width of the predation kernel (1)
+p$h #maximum intake rate (g/y) (22.3)
+p$epsA #assimilation efficiency (0.6)
+p$q #exponent of intake rate (0.8)
+p$u #steepness of allocation to reproduction (5)
+p$f0 #initial feeding level (0.6)
+
+## Explore alternative parameters
+# 1. lower mortality and faster growth
+p$a <- 0.3
+p$A <- 7
+
+N <- spectrum(p)  #get the spectrum based on biphasic growth numerical simulation
+N %>% as_tibble() %>% select(-c(mu.1:mu.1000)) %>% fwrite("lowMort_fastGrowth.csv")
+lowm_fastg <- N %>% as_tibble() %>% select(-c(mu.1:mu.1000)) 
+
+# 2. high mortality and slow growth
+p$a <- 0.55
+p$A <- 3.5
+
+N <- spectrum(p)  #get the spectrum based on biphasic growth numerical simulation
+N %>% as_tibble() %>% select(-c(mu.1:mu.1000)) %>% fwrite("highMort_slowGrowth.csv")
+fasm_lowg <- N %>% as_tibble() %>% select(-c(mu.1:mu.1000)) 
+
+# 3. maturation earlier
+p <- baseparameters()   ## return basic parameters
+p$W <- 1000
+p$etaM <- 0.15 #change maturation size
+
+N <- spectrum(p)  #get the spectrum based on biphasic growth numerical simulation
+N %>% as_tibble() %>% select(-c(mu.1:mu.1000)) %>% fwrite("smallMatSize.csv")
+smallMat <- N %>% as_tibble() %>% select(-c(mu.1:mu.1000)) 
+
+ggplot() + 
+  geom_line(data = base, aes(x = w, y = NprR/NprR[1]), size=1) +
+  geom_line(data = base2, aes(x = w, y = NprR/NprR[1]), size=1, col = 'red') +
+  geom_line(data = lowm_fastg, aes(x = w, y = NprR/NprR[1]), size=1, col = 'orange') +
+  geom_line(data = fasm_lowg, aes(x = w, y = NprR/NprR[1]), size=1, col = 'blue') +
+  geom_line(data = smallMat, aes(x = w, y = NprR/NprR[1]), size=1, col = 'purple') +
+  scale_y_log10() +
+  scale_x_log10() + 
+  xlab(expression(log10(w))) +
+  ylab(expression(log10(Ndens/Ndens[smallest]))) +
+  theme_bw() + 
+  ggtitle("Theoretical number DENSITY spectrum")
+
+
+```
+
+### Plots alternative theoretical predictions 
+
+if you could not use the size spectrum simulator, just use this chunk
+
+```{r}
 model1 <- read_csv("theoryBase_biphasic.csv")  # assuming biphasic growth
 model2 <- read_csv("theoryBase_anal.csv")  # assuming VB growth 
+lowm_fastg <- read_csv("lowMort_fastGrowth.csv") #lower mortality, faster growth (biphasic)
+fasm_lowg <- read_csv("highMort_slowGrowth.csv") #higher mortality, slow growth (biphasic)
+smallMat <- read_csv("smallMatSize.csv") #smaller maturation size (biphasic)
 
 theory <- ggplot() + 
   geom_line(data = model1, aes(x = w, y = NprR/NprR[1]), size=1) +
   geom_line(data = model2, aes(x = w, y = NprR/NprR[1]), size=1, col = 'red') +
+  geom_line(data = lowm_fastg, aes(x = w, y = NprR/NprR[1]), size=1, col = 'orange') +
+  geom_line(data = fasm_lowg, aes(x = w, y = NprR/NprR[1]), size=1, col = 'blue') +
+  geom_line(data = smallMat, aes(x = w, y = NprR/NprR[1]), size=1, col = 'purple') +
   scale_y_log10() +
   scale_x_log10() + 
   xlab(expression(log10(w))) +
@@ -65,7 +154,7 @@ theory
 
 We will use data from RLS for Jervis Bay marine protected area, all surveys combined
 
-```{r}
+```{r, eval = F}
 #read in data
 df_single <- read_csv("jervisBay.csv")
 
@@ -242,12 +331,194 @@ save(teor_plot2, file = "teor_plot_model2c.RData")
 
 ```
 
+#### alternative 1
+
+```{r, eval = F}
+#rename the file, so I can use the same script 
+model1 <- lowm_fastg
+
+### Step 1
+### convert theoretical data to Numbers per size bin and not number density per size bin
+### for this we need to multiply number density by the width of the size bin 
+
+#get width of the size bins dw, which is the difference between two consecutive size classes. At the moment they are not logarithmic 
+model1$dw <- NA
+
+for (i in 2:length(model1$w)) {
+  model1$dw[i-1] <- model1$w[i] - model1$w[i-1]
+}
+
+## now to get actual numbers we multiply number density by dw
+model1$numb <- model1$NprR * model1$dw
+model1 <- model1[c(1:999),]
+sum(model1$numb)
+
+### Step 2
+## now we convert theoretical weights into lengths using standard LW conversion data
+LWa = 0.01
+LWb = 3
+
+model1$len <- (model1$w/LWa)^(1/LWb)
+
+### Step 3
+model1$numb2 <- round(model1$numb*1e7, 0) ## 
+
+sum(model1$numb2)
+
+# untable the data so each row represents one theoretical observation of a certain length
+library(reshape)
+temp_size <- untable(model1, num = model1$numb2)
+
+### Step 4
+# bin them into same lengths as RLS data
+m1_plot <- hist(temp_size$len, breaks = c(0,cutoff),plot = F)
+
+teor_plot <- as.data.frame(cbind(m1_plot$mids, m1_plot$counts))
+colnames(teor_plot) <- c("size_class", "n")
+
+#get mean, max L and total abundance
+meanL <- mean(temp_size$len)
+maxL <- max(temp_size$len)
+totalN <- length(temp_size$len)
+
+#rescale by mean length 
+teor_plot$l_hat <- log(teor_plot$size_class) - log(meanL)
+teor_plot$rel_N <- teor_plot$n/totalN
+
+lowmort_fastgrowth <- teor_plot
+save(lowmort_fastgrowth, file = "lowmort_fastgrowth.RData")
+
+```
+
+#### alternative 2
+
+```{r, eval = F}
+#rename the file, so I can use the same script 
+model1 <- fasm_lowg
+
+### Step 1
+### convert theoretical data to Numbers per size bin and not number density per size bin
+### for this we need to multiply number density by the width of the size bin 
+
+#get width of the size bins dw, which is the difference between two consecutive size classes. At the moment they are not logarithmic 
+model1$dw <- NA
+
+for (i in 2:length(model1$w)) {
+  model1$dw[i-1] <- model1$w[i] - model1$w[i-1]
+}
+
+## now to get actual numbers we multiply number density by dw
+model1$numb <- model1$NprR * model1$dw
+model1 <- model1[c(1:999),]
+sum(model1$numb)
+
+### Step 2
+## now we convert theoretical weights into lengths using standard LW conversion data
+LWa = 0.01
+LWb = 3
+
+model1$len <- (model1$w/LWa)^(1/LWb)
+
+### Step 3
+model1$numb2 <- round(model1$numb*1e7, 0) ## 
+
+sum(model1$numb2)
+
+# untable the data so each row represents one theoretical observation of a certain length
+library(reshape)
+temp_size <- untable(model1, num = model1$numb2)
+
+### Step 4
+# bin them into same lengths as RLS data
+m1_plot <- hist(temp_size$len, breaks = c(0,cutoff),plot = F)
+
+teor_plot <- as.data.frame(cbind(m1_plot$mids, m1_plot$counts))
+colnames(teor_plot) <- c("size_class", "n")
+
+#get mean, max L and total abundance
+meanL <- mean(temp_size$len)
+maxL <- max(temp_size$len)
+totalN <- length(temp_size$len)
+
+#rescale by mean length 
+teor_plot$l_hat <- log(teor_plot$size_class) - log(meanL)
+teor_plot$rel_N <- teor_plot$n/totalN
+
+fastmort_slowgrowth <- teor_plot
+save(fastmort_slowgrowth, file = "fastmort_slowgrowth.RData")
+
+```
+
+#### alternative 3
+
+```{r, eval = F}
+#rename the file, so I can use the same script 
+model1 <- smallMat
+
+### Step 1
+### convert theoretical data to Numbers per size bin and not number density per size bin
+### for this we need to multiply number density by the width of the size bin 
+
+#get width of the size bins dw, which is the difference between two consecutive size classes. At the moment they are not logarithmic 
+model1$dw <- NA
+
+for (i in 2:length(model1$w)) {
+  model1$dw[i-1] <- model1$w[i] - model1$w[i-1]
+}
+
+## now to get actual numbers we multiply number density by dw
+model1$numb <- model1$NprR * model1$dw
+model1 <- model1[c(1:999),]
+sum(model1$numb)
+
+### Step 2
+## now we convert theoretical weights into lengths using standard LW conversion data
+LWa = 0.01
+LWb = 3
+
+model1$len <- (model1$w/LWa)^(1/LWb)
+
+### Step 3
+model1$numb2 <- round(model1$numb*1e7, 0) ## 
+
+sum(model1$numb2)
+
+# untable the data so each row represents one theoretical observation of a certain length
+library(reshape)
+temp_size <- untable(model1, num = model1$numb2)
+
+### Step 4
+# bin them into same lengths as RLS data
+m1_plot <- hist(temp_size$len, breaks = c(0,cutoff),plot = F)
+
+teor_plot <- as.data.frame(cbind(m1_plot$mids, m1_plot$counts))
+colnames(teor_plot) <- c("size_class", "n")
+
+#get mean, max L and total abundance
+meanL <- mean(temp_size$len)
+maxL <- max(temp_size$len)
+totalN <- length(temp_size$len)
+
+#rescale by mean length 
+teor_plot$l_hat <- log(teor_plot$size_class) - log(meanL)
+teor_plot$rel_N <- teor_plot$n/totalN
+
+smallMatur <- teor_plot
+save(smallMatur, file = "smallMatur.RData")
+
+```
+
+
+
 ### Fig1 plot
 
 ```{r}
 load(file = "teor_plot_model1c.Rdata") #biphasic growh
 load(file = "teor_plot_model2c.Rdata") #VB analytical solution
 load(file = "emp_data_plot.RData")
+load(file = "lowmort_fastgrowth.RData")
+load(file = "fastmort_slowgrowth.RData")
+load(file = "smallMatur.RData")
 
 #first check empirical data plot
 fig_number <- 
@@ -266,10 +537,16 @@ fig_number
 #now check theoretical data plot
 teor_plot1 <- teor_plot1[c(which(teor_plot1$n > 0)),]
 teor_plot2 <- teor_plot2[c(which(teor_plot2$n > 0)),]
+lowmort_fastgrowth <- lowmort_fastgrowth[c(which(lowmort_fastgrowth$n > 0)),]
+fastmort_slowgrowth <- fastmort_slowgrowth[c(which(fastmort_slowgrowth$n > 0)),]
+smallMatur <- smallMatur[c(which(smallMatur$n > 0)),]
 
 fig_teor <- ggplot() +
   geom_line(data=teor_plot1, aes(x=l_hat, y=rel_N), size=1) +
   geom_line(data=teor_plot2, aes(x=l_hat, y=rel_N), size=1, col = 'red') + 
+  geom_line(data=lowmort_fastgrowth, aes(x=l_hat, y=rel_N), size=1, col = 'orange') +
+  geom_line(data=fastmort_slowgrowth, aes(x=l_hat, y=rel_N), size=1, col = 'blue') + 
+  geom_line(data=smallMatur, aes(x=l_hat, y=rel_N), size=1, col = 'purple') + 
   xlim(-2, 2) +
   scale_y_log10() +
   theme_bw()
@@ -278,8 +555,11 @@ fig_teor
 # Combined fig
 p1 <- 
   fig_number +
-  geom_smooth(data=teor_plot1, aes(x=l_hat, y=rel_N), se = F, size=1.2, col = "navy") + ## biphasic
-  geom_smooth(data=teor_plot2, aes(x=l_hat, y=rel_N), se = F, size=1.2, col = "blue") +  #VB analytical
+  geom_smooth(data=teor_plot1, aes(x=l_hat, y=rel_N), se = F, size=0.5, col = "blue") + ## biphasic
+  geom_smooth(data=teor_plot2, aes(x=l_hat, y=rel_N), se = F, size=0.5, col = "blue") +  #VB analytical
+  geom_smooth(data=lowmort_fastgrowth, aes(x=l_hat, y=rel_N), se = F, size=0.5, col = "blue") +  #VB analytical
+  geom_smooth(data=fastmort_slowgrowth, aes(x=l_hat, y=rel_N), se = F, size=0.5, col = "blue") +  #VB analytical
+  geom_smooth(data=smallMatur, aes(x=l_hat, y=rel_N), se = F, size=0.5, col = "blue") +  #VB analytical
   xlab("log10(length/mean_length)") +
   ylab("Relative numbers") +
   theme_bw(24) +
